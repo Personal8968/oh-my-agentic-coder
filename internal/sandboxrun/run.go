@@ -127,6 +127,15 @@ func Run(opts Options) int {
 		}
 	}
 
+	// proxy_injection only has an effect in filtered mode: it points a
+	// toolchain at the omac proxy, and no proxy exists under open/blocked.
+	// Say so rather than ignoring the setting silently.
+	if grants.NetworkMode != sandboxprofile.ModeFiltered && len(merged.Network.ProxyInjection) > 0 {
+		fmt.Fprintf(stderr, "omac sandbox: WARNING: network.proxy_injection (%s) is ignored under network.mode %q — "+
+			"it only applies to \"filtered\", where the omac proxy exists.\n",
+			strings.Join(merged.Network.ProxyInjection, ", "), grants.NetworkMode)
+	}
+
 	var proxy *netproxy.Server
 	if grants.NetworkMode == sandboxprofile.ModeFiltered {
 		if grants.Enforcement == sandboxprofile.EnforceEnvOnly {
@@ -158,8 +167,9 @@ func Run(opts Options) int {
 				// routed — its built-in fetch/http would still bypass the
 				// proxy and fail before the filter/prompt.
 				if supported, detail := detectNodeProxySupport(); !supported {
-					fmt.Fprintf(stderr, "omac sandbox: WARNING: proxy_injection: node needs Node >= %d for NODE_USE_ENV_PROXY (%s); "+
-						"Node's built-in fetch/http will bypass the omac proxy under a filtered network.\n", nodeMinProxyEnvMajor, detail)
+					fmt.Fprintf(stderr, "omac sandbox: WARNING: proxy_injection: NODE_USE_ENV_PROXY needs Node >= %d (%s); "+
+						"Node's built-in fetch/http will bypass the omac proxy under a filtered network. "+
+						"The probe reads the host PATH — the runtime inside the sandbox may differ.\n", nodeMinProxyEnvMajor, detail)
 					routed = slices.DeleteFunc(slices.Clone(families), func(f string) bool {
 						return f == sandboxprofile.ProxyInjectNode
 					})

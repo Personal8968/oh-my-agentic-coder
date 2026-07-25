@@ -174,16 +174,6 @@ func ProxyInjectionTools() []string {
 	return []string{ProxyInjectJVM, ProxyInjectNode}
 }
 
-// HasProxyInjection reports whether tool is listed in proxy_injection.
-func (n *Network) HasProxyInjection(tool string) bool {
-	for _, t := range n.ProxyInjection {
-		if t == tool {
-			return true
-		}
-	}
-	return false
-}
-
 // NetworkPrompt mirrors nono's network_prompt block.
 type NetworkPrompt struct {
 	// Enabled defaults to true when the network_prompt object is

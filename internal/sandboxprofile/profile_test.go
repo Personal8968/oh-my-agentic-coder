@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -111,14 +112,9 @@ func TestProxyInjection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("valid proxy_injection rejected: %v", err)
 	}
-	if !p.Network.HasProxyInjection(ProxyInjectJVM) {
-		t.Error("HasProxyInjection(jvm) = false, want true")
-	}
-	if !p.Network.HasProxyInjection(ProxyInjectNode) {
-		t.Error("HasProxyInjection(node) = false, want true")
-	}
-	if p.Network.HasProxyInjection("python") {
-		t.Error("HasProxyInjection(python) = true, want false")
+	want := []string{ProxyInjectJVM, ProxyInjectNode}
+	if !slices.Equal(p.Network.ProxyInjection, want) {
+		t.Errorf("proxy_injection = %v, want %v", p.Network.ProxyInjection, want)
 	}
 }
 

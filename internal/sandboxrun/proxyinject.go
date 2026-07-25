@@ -74,10 +74,25 @@ func jvmProxyInject(proxyURL string) (map[string]string, error) {
 // already-injected HTTP(S)_PROXY (with its userinfo token). Requires
 // Node >= 24; older runtimes ignore the variable (no-op, not an error).
 func nodeProxyInject(proxyURL string) (map[string]string, error) {
-	if _, err := url.Parse(proxyURL); err != nil {
-		return nil, fmt.Errorf("proxy_injection: parse proxy url: %w", err)
+	if _, _, err := parseProxyHostPort(proxyURL); err != nil {
+		return nil, err
 	}
 	return map[string]string{"NODE_USE_ENV_PROXY": "1"}, nil
+}
+
+// parseProxyHostPort extracts the host and port an injector must point its
+// toolchain at, rejecting a proxy URL that carries neither. url.Parse alone
+// accepts almost any string, so every injector validates through here rather
+// than parsing and discarding the result.
+func parseProxyHostPort(proxyURL string) (*url.URL, string, error) {
+	u, err := url.Parse(proxyURL)
+	if err != nil {
+		return nil, "", fmt.Errorf("proxy_injection: parse proxy url: %w", err)
+	}
+	if u.Hostname() == "" || u.Port() == "" {
+		return nil, "", fmt.Errorf("proxy_injection: proxy url %q lacks host:port", proxyURL)
+	}
+	return u, u.Port(), nil
 }
 
 // JVMProxyToolOptions renders a JAVA_TOOL_OPTIONS value that points every
@@ -97,15 +112,11 @@ func nodeProxyInject(proxyURL string) (map[string]string, error) {
 // "Picked up JAVA_TOOL_OPTIONS: ..." notice (containing the token) to
 // stderr on every launch; the token is ephemeral and proxy-scoped.
 func JVMProxyToolOptions(proxyURL string) (string, error) {
-	u, err := url.Parse(proxyURL)
+	u, port, err := parseProxyHostPort(proxyURL)
 	if err != nil {
-		return "", fmt.Errorf("proxy_injection: parse proxy url: %w", err)
+		return "", err
 	}
 	host := u.Hostname()
-	port := u.Port()
-	if host == "" || port == "" {
-		return "", fmt.Errorf("proxy_injection: proxy url %q lacks host:port", proxyURL)
-	}
 	user := u.User.Username()
 	pass, _ := u.User.Password()
 
@@ -146,21 +157,27 @@ func nodeProxyEnvSupported(versionOutput string) bool {
 	return n >= nodeMinProxyEnvMajor
 }
 
-// detectNodeProxySupport probes the node binary on PATH and reports whether
-// it honors NODE_USE_ENV_PROXY, plus a human-readable detail for the warning
-// omac emits when routing cannot actually be provided.
+// detectNodeProxySupport probes the node binary on the *supervisor's* PATH
+// and reports whether it honors NODE_USE_ENV_PROXY, plus a human-readable
+// detail for the warning omac emits when routing cannot be provided.
+//
+// This is a best-effort heuristic, not a guarantee: the runtime the sandboxed
+// agent actually executes may differ (a version-manager shim resolving
+// differently under the child's env, or a node the profile grants no read
+// access to). Every detail string therefore names the host, so a misleading
+// verdict is legible as such rather than read as a fact about the sandbox.
 func detectNodeProxySupport() (supported bool, detail string) {
 	path, err := exec.LookPath("node")
 	if err != nil {
-		return false, "node not found on PATH"
+		return false, "no node on the host PATH"
 	}
 	out, err := exec.Command(path, "--version").Output()
 	if err != nil {
-		return false, fmt.Sprintf("could not run `node --version`: %v", err)
+		return false, fmt.Sprintf("could not run host `node --version`: %v", err)
 	}
 	version := strings.TrimSpace(string(out))
 	if !nodeProxyEnvSupported(version) {
-		return false, fmt.Sprintf("found Node %s (need >= %d)", version, nodeMinProxyEnvMajor)
+		return false, fmt.Sprintf("host node is %s", version)
 	}
-	return true, version
+	return true, fmt.Sprintf("host node %s", version)
 }

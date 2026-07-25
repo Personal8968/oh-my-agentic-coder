@@ -546,6 +546,22 @@ ignore those vars:
   warning and does not claim routing (the npm/yarn/pnpm CLIs work
   without this family).
 
+**The Gradle daemon needs one extra grant.** The daemon talks to its
+client over a *random loopback port*, which the default
+`network.enforcement: kernel` does not permit. Prefer
+`./gradlew --no-daemon` (or `org.gradle.daemon=false`) — nothing else is
+needed. If you must keep the daemon, the fix is platform-specific:
+
+| Platform | Setting | Egress still kernel-enforced? |
+|---|---|---|
+| macOS | `"network": { "open_port": [0] }` | **yes** — `0` is the "any loopback port" sentinel, which Seatbelt can express as `localhost:*` while still denying external egress |
+| Linux | `"network": { "enforcement": "env-only" }` | no — Landlock rules are address-blind, so "any loopback port" would have to mean any port; the proxy filter and prompt still apply, but the kernel bypass-guarantee is gone |
+
+On macOS prefer `open_port: [0]` over `enforcement: env-only` — it solves
+the same daemon problem without opening general network access. The `0`
+sentinel is **macOS-only**: on Linux it is a silent no-op (there is no
+Landlock rule that can express it), so Linux needs `env-only`.
+
 ### Corporate proxy
 
 In corporate environments where outbound traffic must go through a proxy,

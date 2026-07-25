@@ -121,3 +121,17 @@ func TestJVMProxyToolOptions_Invalid(t *testing.T) {
 		}
 	}
 }
+
+// TestProxyInjectionEnv_RejectsProxyURLWithoutHostPort covers the shared
+// validation seam: an injector must fail loud on a proxy URL it cannot point
+// a toolchain at, rather than emitting a config that silently routes nowhere.
+// url.Parse alone accepts these strings, so every family is checked.
+func TestProxyInjectionEnv_RejectsProxyURLWithoutHostPort(t *testing.T) {
+	for _, bad := range []string{"", "127.0.0.1", "http://127.0.0.1", "not a url at all"} {
+		for _, family := range sandboxprofile.ProxyInjectionTools() {
+			if _, err := ProxyInjectionEnv([]string{family}, bad); err == nil {
+				t.Errorf("family %q accepted proxy url %q, want error", family, bad)
+			}
+		}
+	}
+}
