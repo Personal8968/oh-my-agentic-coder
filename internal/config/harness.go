@@ -92,6 +92,22 @@ type Harness struct {
 	// leaves this nil.
 	BriefingEnvFunc func(briefing, tmpDir string) map[string]string
 
+	// BriefingFileFunc delivers the briefing by writing a file into the
+	// workdir, for harnesses that (a) expose no system-prompt flag or env
+	// pointer and (b) load always-on context only from files in the
+	// workspace tree. It returns the workdir-relative path it wrote (so the
+	// launcher can remove it on exit) and any error. A nil func means this
+	// mechanism is unused.
+	//   - CodeWhale: writes .codewhale/rules/omac-sandbox-briefing.md, which
+	//     CodeWhale loads additively and unconditionally into every session.
+	//     (Its first-found .codewhale/instructions.md would be shadowed by any
+	//     AGENTS.md/CLAUDE.md; the rules dir is not — see project_context.rs.)
+	// Unlike BriefingEnvFunc's tmpDir (ephemeral, env-pointed), this writes
+	// into the persistent workdir because CodeWhale reads instruction/rules
+	// files only from the workspace tree; omac removes the file when the run
+	// exits (internal/cli.removeBriefingFile).
+	BriefingFileFunc func(briefing, workdir string) (relPath string, err error)
+
 	// SandboxDirs are directories the selected harness needs at runtime
 	// for configuration, authentication, state, and session storage.
 	// omac grants them read+write only for that selected harness.
@@ -392,6 +408,67 @@ func harnessRegistry() []Harness {
 			// system prompt.
 			SystemContextArgs:    nil,
 			BriefingEnvFunc:      nil,
+			NeedsPluginBootstrap: false,
+		},
+		{
+			Name:    "codewhale",
+			Aliases: []string{"cw"},
+			// CodeWhale CLI executable is `codewhale` (Rust; npm package
+			// "codewhale"). Headless runs use `codewhale exec "<prompt>"`.
+			InnerCmd: []string{"codewhale"},
+			// CodeWhale's `web` mode is a browser client, not a headless API
+			// daemon in the mold of `opencode serve`; under `omac serve` it
+			// runs as-is.
+			ServerLaunch: nil,
+			// CodeWhale has no omac bridge plugin; the briefing is delivered
+			// as a rules file (BriefingFileFunc), not a plugin.
+			BridgeDir:  "",
+			SkillsBase: "codewhale",
+			// CodeWhale's config home is ~/.codewhale (not ~/.config/codewhale),
+			// overridable via CODEWHALE_HOME. config.toml, state.db (the SQLite
+			// session store), secrets/secrets.json, and constitution.json all
+			// live under it (crates/config, crates/secrets, crates/state).
+			UserConfigHome: ".codewhale",
+			HomeEnv:        "CODEWHALE_HOME",
+			// ~/.codewhale holds configuration, auth secrets, and sessions.
+			SandboxDirs: []string{"~/.codewhale"},
+			// CodeWhale is multi-provider (DeepSeek/OpenAI/Anthropic/OpenRouter/
+			// Moonshot/… reading a different *_API_KEY per configured provider).
+			// Like opencode and pi, omac must NOT blindly forward a grab-bag of
+			// third-party keys regardless of which provider is configured: the
+			// user declares the specific key their setup uses in the profile's
+			// environment.allow_vars. So this stays empty.
+			SandboxEnvAllow: nil,
+			Session: &HarnessSession{
+				// `codewhale --continue` reopens the most recent session for
+				// this workdir; `codewhale --resume <id>` resumes a specific one.
+				ContinueArgs:   []string{"--continue"},
+				ResumeByIDArgs: func(id string) []string { return []string{"--resume", id} },
+				// Enumerating CodeWhale's SQLite state.db is not modeled yet, so
+				// `omac resume` with no id reports listing unsupported;
+				// `omac continue` and `omac resume <id>` work via the flags above.
+				ListKind: SessionListNone,
+			},
+			// CodeWhale exposes no system-prompt CLI flag and no env pointer to
+			// an instructions dir; it loads always-on context only from files in
+			// the workspace tree. The first-found project-instructions file
+			// (.codewhale/instructions.md) is shadowed by any AGENTS.md/CLAUDE.md,
+			// but every .md under .codewhale/rules/ is loaded additively and
+			// unconditionally (crates/tui/src/project_context.rs), so omac writes
+			// the briefing there.
+			SystemContextArgs: nil,
+			BriefingEnvFunc:   nil,
+			BriefingFileFunc: func(briefing, workdir string) (string, error) {
+				rel := filepath.Join(".codewhale", "rules", "omac-sandbox-briefing.md")
+				dst := filepath.Join(workdir, rel)
+				if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+					return "", err
+				}
+				if err := os.WriteFile(dst, []byte(briefing), 0o644); err != nil {
+					return "", err
+				}
+				return rel, nil
+			},
 			NeedsPluginBootstrap: false,
 		},
 	}

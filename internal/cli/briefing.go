@@ -1,6 +1,9 @@
 package cli
 
 import (
+	"os"
+	"path/filepath"
+
 	"github.com/tngtech/oh-my-agentic-coder/internal/config"
 	"github.com/tngtech/oh-my-agentic-coder/internal/sandboxbrief"
 	"github.com/tngtech/oh-my-agentic-coder/internal/toolcache"
@@ -34,4 +37,21 @@ func briefingInjection(noSandbox bool, inner []string, harness config.Harness, o
 	}
 	text += sandboxbrief.CacheGuidance(dir, mode)
 	return text, true
+}
+
+// removeBriefingFile deletes a workdir briefing file written by a harness's
+// BriefingFileFunc (e.g. codewhale's .codewhale/rules/omac-sandbox-briefing.md)
+// and best-effort prunes the parent directories omac may have created for it.
+// All operations are best-effort: os.Remove only removes empty directories, so
+// a user's own files under .codewhale/rules or .codewhale are never touched.
+func removeBriefingFile(path string) {
+	if path == "" {
+		return
+	}
+	_ = os.Remove(path)
+	// Prune up to two now-empty parents (e.g. .codewhale/rules, then
+	// .codewhale). os.Remove fails on a non-empty dir, so this is safe.
+	dir := filepath.Dir(path)
+	_ = os.Remove(dir)
+	_ = os.Remove(filepath.Dir(dir))
 }
