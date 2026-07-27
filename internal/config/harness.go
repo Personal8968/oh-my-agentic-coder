@@ -166,6 +166,9 @@ const (
 	// SessionListPi lists by reading Pi's session store (JSONL files under
 	// ~/.pi/agent/sessions/).
 	SessionListPi
+	// SessionListCodewhale lists by reading CodeWhale's SQLite session store
+	// (~/.codewhale/state.db, the `threads` table).
+	SessionListCodewhale
 )
 
 // HarnessSession encodes the harness-specific knowledge `omac continue` and
@@ -444,10 +447,10 @@ func harnessRegistry() []Harness {
 				// this workdir; `codewhale --resume <id>` resumes a specific one.
 				ContinueArgs:   []string{"--continue"},
 				ResumeByIDArgs: func(id string) []string { return []string{"--resume", id} },
-				// Enumerating CodeWhale's SQLite state.db is not modeled yet, so
-				// `omac resume` with no id reports listing unsupported;
-				// `omac continue` and `omac resume <id>` work via the flags above.
-				ListKind: SessionListNone,
+				// `omac resume` enumerates CodeWhale's SQLite session store
+				// (~/.codewhale/state.db, the `threads` table); see
+				// session.listCodewhale.
+				ListKind: SessionListCodewhale,
 			},
 			// CodeWhale exposes no system-prompt CLI flag and no env pointer to
 			// an instructions dir; it loads always-on context only from files in

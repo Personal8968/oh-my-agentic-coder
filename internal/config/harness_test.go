@@ -910,10 +910,8 @@ func TestCodewhaleSessionMetadata(t *testing.T) {
 	if got := h.Session.ResumeByIDArgs("abc123"); !reflect.DeepEqual(got, []string{"--resume", "abc123"}) {
 		t.Errorf("codewhale ResumeByIDArgs = %v, want [--resume abc123]", got)
 	}
-	// Session enumeration (SQLite state.db) is not modeled yet: listing is
-	// unsupported, but --continue / --resume <id> work via the flags above.
-	if h.Session.ListKind != SessionListNone {
-		t.Errorf("codewhale ListKind = %v, want SessionListNone", h.Session.ListKind)
+	if h.Session.ListKind != SessionListCodewhale {
+		t.Errorf("codewhale ListKind = %v, want SessionListCodewhale", h.Session.ListKind)
 	}
 }
 
