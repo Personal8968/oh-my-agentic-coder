@@ -117,11 +117,16 @@ func allHarnesses() []harnessConfig {
 		codexConfig(),
 		copilotConfig(),
 		piConfig(),
+		codewhaleConfig(),
 	}
 	if runtime.GOOS == "darwin" {
+		// codex and codewhale are excluded on darwin — both are Rust CLIs
+		// whose HTTP clients are (codex: confirmed; codewhale: by analogy,
+		// unverified — see codewhaleConfig) incompatible with the macOS
+		// Seatbelt sandbox. See issue #48.
 		out := all[:0]
 		for _, h := range all {
-			if h.Name != "codex" {
+			if h.Name != "codex" && h.Name != "codewhale" {
 				out = append(out, h)
 			}
 		}
@@ -623,6 +628,113 @@ func piConfig() harnessConfig {
 		},
 		ExpectVisibleEnv: func() []string {
 			return []string{"SKAINET_TOKEN=", "OMAC_"}
+		},
+	}
+}
+
+// ---------------------------------------------------------------------------
+// codewhale
+// ---------------------------------------------------------------------------
+
+// codewhale is a Rust CLI (npm package "codewhale") that is multi-provider.
+// For this test it runs against the internal SKAINET gateway via CodeWhale's
+// generic OpenAI-compatible route: config.example.toml documents
+// `provider = "openai"` + a `[providers.openai]` table for "generic
+// OpenAI-compatible gateways" (config.example.toml:354). We point that
+// provider's base_url at SKAINET_INTERNAL and set path_suffix = "/chat/
+// completions" so requests go to <base>/chat/completions — the same shape
+// opencode's @ai-sdk/openai-compatible client uses against this gateway.
+//
+// Env vars: OPENAI_API_KEY carries the bearer token. CodeWhale's openai
+// provider reads it from the process env (crates/config/src/provider.rs:546),
+// so — like codex's env_key and pi's $ENV_VAR indirection — the raw token is
+// never written to disk. SKAINET_TOKEN also propagates via os.Environ().
+//
+// Headless execution: `codewhale exec` alone is a one-shot model response;
+// `--auto` enables tool-backed agent mode with auto-approvals (crates/cli/
+// src/lib.rs:252,259) — required so the agent can call the echo-rest skill,
+// write files, and git-commit. config.toml pins approval_policy = "never"
+// and sandbox_mode = "danger-full-access" so CodeWhale neither prompts nor
+// applies its OWN inner OS sandbox inside omac's bwrap/Seatbelt sandbox.
+// `[update] check_for_updates = false` suppresses the startup version check
+// so no fixed release host is contacted.
+//
+// Sandbox deviations: none expected — the model host (SKAINET_INTERNAL) is
+// allowed by the base profile and the update check is disabled. This has NOT
+// been verified against a live gateway run (unlike opencode/pi, which were);
+// treat ExtraAllowDomains as provisional if a real run surfaces a startup host.
+//
+// macOS: excluded from allHarnesses() by analogy with codex — CodeWhale is
+// Rust with its own HTTP client, the same class that makes codex's client
+// disconnect mid-stream under macOS Seatbelt (issue #48). This is a
+// precaution, NOT a verified CodeWhale failure; re-test on macOS and drop the
+// exclusion (here, in expectedHarnessNames, and in e2e.yml) if it works.
+//
+// SkillsBase is ".agents", not ".codewhale": CodeWhale loads workspace-local
+// skills from `.agents/skills` or `./skills` (CONFIGURATION.md:1490), and
+// does NOT read a workspace `.codewhale/skills`. The e2e installs the skill
+// into <workdir>/<SkillsBase>/skills, so it must target a dir CodeWhale reads.
+//
+// Files written:
+//   - ~/.codewhale/config.toml — provider, model, approvals, sandbox, update
+func codewhaleConfig() harnessConfig {
+	return harnessConfig{
+		Name:       "codewhale",
+		BinaryName: "codewhale",
+		InstallCmd: []string{"npm", "install", "-g", pinnedPackage("codewhale")},
+		ProviderSetup: func(t *testing.T, home string) {
+			token := os.Getenv("SKAINET_TOKEN")
+			if token == "" {
+				t.Fatal("SKAINET_TOKEN not set")
+			}
+			baseURL := os.Getenv("SKAINET_INTERNAL")
+			if baseURL == "" {
+				t.Fatal("SKAINET_INTERNAL not set (CI secret for the model provider URL)")
+			}
+			t.Logf("codewhale provider: baseURL=%s tokenLen=%d", baseURL, len(token))
+			cwDir := filepath.Join(home, ".codewhale")
+			if err := os.MkdirAll(cwDir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			// The API key is NOT written here — it comes from OPENAI_API_KEY in
+			// the process env (see EnvVars), keeping the token off disk.
+			configToml := `provider = "openai"
+default_text_model = "` + modelIDs["codewhale"] + `"
+approval_policy = "never"
+sandbox_mode = "danger-full-access"
+
+[providers.openai]
+base_url = "` + baseURL + `"
+path_suffix = "/chat/completions"
+
+[update]
+check_for_updates = false
+`
+			if err := os.WriteFile(filepath.Join(cwDir, "config.toml"), []byte(configToml), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			t.Logf("config.toml written to %s", cwDir)
+		},
+		EnvVars: func(t *testing.T) []string {
+			token := os.Getenv("SKAINET_TOKEN")
+			if token == "" {
+				t.Fatal("SKAINET_TOKEN not set")
+			}
+			// CodeWhale's openai provider reads OPENAI_API_KEY from the env.
+			return []string{"OPENAI_API_KEY=" + token}
+		},
+		Sandbox: SandboxConfig{}, // no deviations expected — see the doc comment (unverified live)
+		RunArgs: func(prompt string) []string {
+			// Global flags (--model) MUST precede the `exec` subcommand; the
+			// `--auto` tool-mode flag is an exec passthrough and follows it.
+			return []string{"--model", modelIDs["codewhale"], "exec", "--auto", prompt}
+		},
+		SkillsBase: ".agents",
+		EnvVarsForAllow: func() []string {
+			return []string{"OPENAI_API_KEY"}
+		},
+		ExpectVisibleEnv: func() []string {
+			return []string{"OPENAI_API_KEY=", "OMAC_"}
 		},
 	}
 }
