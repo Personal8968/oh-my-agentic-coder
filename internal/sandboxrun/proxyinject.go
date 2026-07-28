@@ -10,9 +10,12 @@ import (
 	"github.com/tngtech/oh-my-agentic-coder/internal/sandboxprofile"
 )
 
-// nodeMinProxyEnvMajor is the first Node major that honors
-// NODE_USE_ENV_PROXY; older runtimes ignore it (no-op, not an error).
-const nodeMinProxyEnvMajor = 24
+const (
+	nodeProxyEnvLTSMajor        = 22
+	nodeProxyEnvLTSMinMinor     = 21
+	nodeProxyEnvCurrentMajor    = 24
+	nodeProxyEnvCurrentMinMinor = 5
+)
 
 // proxyInjector renders the environment that routes one proxy-unaware
 // toolchain family through proxyURL (the omac filtering proxy).
@@ -71,8 +74,9 @@ func jvmProxyInject(proxyURL string) (map[string]string, error) {
 // proxyURL. The package managers (npm, yarn, pnpm) already honor the
 // injected HTTP(S)_PROXY env, but Node's runtime HTTP client ignores it
 // unless opted in. NODE_USE_ENV_PROXY=1 makes Node route through the
-// already-injected HTTP(S)_PROXY (with its userinfo token). Requires
-// Node >= 24; older runtimes ignore the variable (no-op, not an error).
+// already-injected HTTP(S)_PROXY (with its userinfo token). Requires Node
+// 22.21.0+ on the 22.x line, or 24.5.0+ on current and later lines; older
+// runtimes ignore the variable (no-op, not an error).
 func nodeProxyInject(proxyURL string) (map[string]string, error) {
 	if _, _, err := parseProxyHostPort(proxyURL); err != nil {
 		return nil, err
@@ -143,18 +147,49 @@ func JVMProxyToolOptions(proxyURL string) (string, error) {
 }
 
 // nodeProxyEnvSupported reports whether the `node --version` output belongs
-// to a runtime that honors NODE_USE_ENV_PROXY (Node >= 24). Unparseable
-// output is treated as unsupported so callers warn rather than silently
-// claim routing.
+// to a runtime that honors NODE_USE_ENV_PROXY for both built-in fetch and
+// http/https (Node 22.21.0+ on the 22.x line, or 24.5.0+ on current and later
+// lines). Unparseable output is treated as unsupported so callers warn rather
+// than silently claim routing.
 func nodeProxyEnvSupported(versionOutput string) bool {
 	v := strings.TrimSpace(versionOutput)
 	v = strings.TrimPrefix(v, "v")
-	major, _, _ := strings.Cut(v, ".")
-	n, err := strconv.Atoi(major)
-	if err != nil {
+	majorText, remainder, ok := strings.Cut(v, ".")
+	if !ok {
 		return false
 	}
-	return n >= nodeMinProxyEnvMajor
+	minorText, patchText, ok := strings.Cut(remainder, ".")
+	if !ok {
+		return false
+	}
+	major, ok := parseNodeVersionNumber(majorText)
+	if !ok {
+		return false
+	}
+	minor, ok := parseNodeVersionNumber(minorText)
+	if !ok {
+		return false
+	}
+	if _, ok := parseNodeVersionNumber(patchText); !ok {
+		return false
+	}
+	return (major == nodeProxyEnvLTSMajor && minor >= nodeProxyEnvLTSMinMinor) ||
+		major > nodeProxyEnvCurrentMajor ||
+		(major == nodeProxyEnvCurrentMajor && minor >= nodeProxyEnvCurrentMinMinor)
+}
+
+// parseNodeVersionNumber accepts canonical unsigned SemVer numeric components.
+func parseNodeVersionNumber(component string) (int, bool) {
+	if component == "" || (len(component) > 1 && component[0] == '0') {
+		return 0, false
+	}
+	for _, c := range component {
+		if c < '0' || c > '9' {
+			return 0, false
+		}
+	}
+	n, err := strconv.Atoi(component)
+	return n, err == nil
 }
 
 // detectNodeProxySupport probes the node binary on the *supervisor's* PATH

@@ -542,7 +542,7 @@ ignore those vars:
   authenticate and get a `407`; provisioning a toolchain over an
   authenticated proxy is out of scope.
 - **`node`** — injects `NODE_USE_ENV_PROXY=1` for Node's built-in
-  `fetch`/`http`. Requires **Node ≥ 24**; on older runtimes omac emits a
+  `fetch`/`http`. Requires **Node ≥ 22.21.0 on the 22.x line, or ≥ 24.5.0 on current and later lines**; on older runtimes omac emits a
   warning and does not claim routing (the npm/yarn/pnpm CLIs work
   without this family).
 

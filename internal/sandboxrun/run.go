@@ -162,14 +162,15 @@ func Run(opts Options) int {
 			}
 			routed := families
 			if slices.Contains(families, sandboxprofile.ProxyInjectNode) {
-				// Node < 24 silently ignores NODE_USE_ENV_PROXY, so the var
-				// is injected (harmless no-op) but we must not claim node is
-				// routed — its built-in fetch/http would still bypass the
-				// proxy and fail before the filter/prompt.
+				// Node versions outside the supported release lines silently
+				// ignore NODE_USE_ENV_PROXY, so the var is injected (harmless
+				// no-op) but we must not claim node is routed — its built-in
+				// fetch/http would still bypass the proxy and fail before the
+				// filter/prompt.
 				if supported, detail := detectNodeProxySupport(); !supported {
-					fmt.Fprintf(stderr, "omac sandbox: WARNING: proxy_injection: NODE_USE_ENV_PROXY needs Node >= %d (%s); "+
+					fmt.Fprintf(stderr, "omac sandbox: WARNING: proxy_injection: NODE_USE_ENV_PROXY needs Node 22.21.0+ on the 22.x line, or 24.5.0+ on current and later lines (%s); "+
 						"Node's built-in fetch/http will bypass the omac proxy under a filtered network. "+
-						"The probe reads the host PATH — the runtime inside the sandbox may differ.\n", nodeMinProxyEnvMajor, detail)
+						"The probe reads the host PATH — the runtime inside the sandbox may differ.\n", detail)
 					routed = slices.DeleteFunc(slices.Clone(families), func(f string) bool {
 						return f == sandboxprofile.ProxyInjectNode
 					})
