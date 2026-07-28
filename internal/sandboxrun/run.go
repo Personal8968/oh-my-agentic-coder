@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/tngtech/oh-my-agentic-coder/internal/audit"
@@ -126,6 +127,15 @@ func Run(opts Options) int {
 		}
 	}
 
+	// proxy_injection only has an effect in filtered mode: it points a
+	// toolchain at the omac proxy, and no proxy exists under open/blocked.
+	// Say so rather than ignoring the setting silently.
+	if grants.NetworkMode != sandboxprofile.ModeFiltered && len(merged.Network.ProxyInjection) > 0 {
+		fmt.Fprintf(stderr, "omac sandbox: WARNING: network.proxy_injection (%s) is ignored under network.mode %q — "+
+			"it only applies to \"filtered\", where the omac proxy exists.\n",
+			strings.Join(merged.Network.ProxyInjection, ", "), grants.NetworkMode)
+	}
+
 	var proxy *netproxy.Server
 	if grants.NetworkMode == sandboxprofile.ModeFiltered {
 		if grants.Enforcement == sandboxprofile.EnforceEnvOnly {
@@ -141,6 +151,34 @@ func Run(opts Options) int {
 		grants.ProxyPort = proxy.Port()
 		for k, v := range proxy.EnvVars() {
 			injected[k] = v
+		}
+		if families := merged.Network.ProxyInjection; len(families) > 0 {
+			env, oerr := ProxyInjectionEnv(families, proxy.ProxyURL())
+			if oerr != nil {
+				return fail("%v", oerr)
+			}
+			for k, v := range env {
+				injected[k] = v
+			}
+			routed := families
+			if slices.Contains(families, sandboxprofile.ProxyInjectNode) {
+				// Node versions outside the supported release lines silently
+				// ignore NODE_USE_ENV_PROXY, so the var is injected (harmless
+				// no-op) but we must not claim node is routed — its built-in
+				// fetch/http would still bypass the proxy and fail before the
+				// filter/prompt.
+				if supported, detail := detectNodeProxySupport(); !supported {
+					fmt.Fprintf(stderr, "omac sandbox: WARNING: proxy_injection: NODE_USE_ENV_PROXY needs Node 22.21.0+ on the 22.x line, or 24.5.0+ on current and later lines (%s); "+
+						"Node's built-in fetch/http will bypass the omac proxy under a filtered network. "+
+						"The probe reads the host PATH — the runtime inside the sandbox may differ.\n", detail)
+					routed = slices.DeleteFunc(slices.Clone(families), func(f string) bool {
+						return f == sandboxprofile.ProxyInjectNode
+					})
+				}
+			}
+			if len(routed) > 0 {
+				fmt.Fprintf(stderr, "omac sandbox: proxy_injection: %s routed through the omac proxy\n", strings.Join(routed, ", "))
+			}
 		}
 	}
 
@@ -167,7 +205,7 @@ func Run(opts Options) int {
 	if recorder != nil {
 		onReady = recorder.Start
 	}
-	code, err := sandbox.ExecWithEnv(childArgv, env, onReady)
+	code, err := sandbox.ExecWithEnv(childArgv, env, grants.Workdir, onReady)
 	if err != nil {
 		return fail("%v", err)
 	}
