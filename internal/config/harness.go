@@ -425,8 +425,15 @@ func harnessRegistry() []Harness {
 			ServerLaunch: nil,
 			// CodeWhale has no omac bridge plugin; the briefing is delivered
 			// as a rules file (BriefingFileFunc), not a plugin.
-			BridgeDir:  "",
-			SkillsBase: "codewhale",
+			BridgeDir: "",
+			// CodeWhale loads workspace-local skills only from `.agents/skills`
+			// or `./skills` (docs/CONFIGURATION.md) — NOT a workspace
+			// `.codewhale/skills`. Owning the shared "agents" base is therefore
+			// correct: WorkdirSkillsDir() becomes `.agents/skills` (where
+			// CodeWhale actually looks), while ConfigHome()/GlobalSkillsDir()
+			// still resolve to ~/.codewhale[/skills] via UserConfigHome below
+			// (CodeWhale reads ~/.codewhale/skills as its global skills dir).
+			SkillsBase: SharedSkillsBase,
 			// CodeWhale's config home is ~/.codewhale (not ~/.config/codewhale),
 			// overridable via CODEWHALE_HOME. config.toml, state.db (the SQLite
 			// session store), secrets/secrets.json, and constitution.json all
@@ -444,9 +451,13 @@ func harnessRegistry() []Harness {
 			SandboxEnvAllow: nil,
 			Session: &HarnessSession{
 				// `codewhale --continue` reopens the most recent session for
-				// this workdir; `codewhale --resume <id>` resumes a specific one.
+				// this workdir (--continue is a top-level flag). Resuming a
+				// specific id is the top-level `resume <id>` SUBCOMMAND, not a
+				// flag: `codewhale --resume <id>` is rejected ("unexpected
+				// argument"); `--resume`/`--session-id` are exec-only. So this
+				// mirrors codex's `resume <id>` shape, not claude's `--resume`.
 				ContinueArgs:   []string{"--continue"},
-				ResumeByIDArgs: func(id string) []string { return []string{"--resume", id} },
+				ResumeByIDArgs: func(id string) []string { return []string{"resume", id} },
 				// `omac resume` enumerates CodeWhale's SQLite session store
 				// (~/.codewhale/state.db, the `threads` table); see
 				// session.listCodewhale.

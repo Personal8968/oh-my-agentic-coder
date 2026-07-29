@@ -654,10 +654,12 @@ func piConfig() harnessConfig {
 // `--auto` enables tool-backed agent mode with auto-approvals (crates/cli/
 // src/lib.rs:252,259) — required so the agent can call the echo-rest skill,
 // write files, and git-commit. config.toml pins approval_policy = "never"
-// and sandbox_mode = "danger-full-access" so CodeWhale neither prompts nor
+// and sandbox_mode = "external-sandbox" so CodeWhale neither prompts nor
 // applies its OWN inner OS sandbox inside omac's bwrap/Seatbelt sandbox.
 // `[update] check_for_updates = false` suppresses the startup version check
-// so no fixed release host is contacted.
+// so no fixed release host is contacted. The token binds via [providers.openai]
+// api_key_env = "OPENAI_API_KEY": CodeWhale refuses an ambient key on a custom
+// base_url unless it is bound explicitly.
 //
 // Sandbox deviations: none expected — the model host (SKAINET_INTERNAL) is
 // allowed by the base profile and the update check is disabled. This has NOT
@@ -696,16 +698,27 @@ func codewhaleConfig() harnessConfig {
 			if err := os.MkdirAll(cwDir, 0o755); err != nil {
 				t.Fatal(err)
 			}
-			// The API key is NOT written here — it comes from OPENAI_API_KEY in
-			// the process env (see EnvVars), keeping the token off disk.
+			// The API key is NOT written here — api_key_env binds it to the
+			// OPENAI_API_KEY process env var (see EnvVars), keeping the token
+			// off disk. This explicit binding is REQUIRED: CodeWhale refuses to
+			// send an ambient OPENAI_API_KEY to a custom (non-default) base_url
+			// ("Custom endpoint credentials … must be bound explicitly"), so
+			// api_key_env is what lets the auth path reach the gateway.
+			//
+			// sandbox_mode = "external-sandbox": CodeWhale runs inside omac's
+			// bwrap sandbox, so it must not apply its own inner OS isolation;
+			// "external-sandbox" is the semantically exact value for that (an
+			// external sandbox is already in force). approval_policy = "never"
+			// auto-approves tool actions for the non-interactive run.
 			configToml := `provider = "openai"
 default_text_model = "` + modelIDs["codewhale"] + `"
 approval_policy = "never"
-sandbox_mode = "danger-full-access"
+sandbox_mode = "external-sandbox"
 
 [providers.openai]
 base_url = "` + baseURL + `"
 path_suffix = "/chat/completions"
+api_key_env = "OPENAI_API_KEY"
 
 [update]
 check_for_updates = false
@@ -725,9 +738,13 @@ check_for_updates = false
 		},
 		Sandbox: SandboxConfig{}, // no deviations expected — see the doc comment (unverified live)
 		RunArgs: func(prompt string) []string {
-			// Global flags (--model) MUST precede the `exec` subcommand; the
-			// `--auto` tool-mode flag is an exec passthrough and follows it.
-			return []string{"--model", modelIDs["codewhale"], "exec", "--auto", prompt}
+			// `exec` leads so the contract deriver captures it as a subcommand
+			// (flagsAndSub only treats a LEADING positional as the subcommand;
+			// a preceding `--model <val>` would hide `exec` and its --model
+			// value would be misread). The model comes from config.toml's
+			// default_text_model instead. `--auto` = tool-backed agent mode
+			// with auto-approvals (required for the echo-rest tool call).
+			return []string{"exec", "--auto", prompt}
 		},
 		SkillsBase: ".agents",
 		EnvVarsForAllow: func() []string {

@@ -877,8 +877,13 @@ func TestCodewhaleHarnessDescriptor(t *testing.T) {
 	if h.ServerLaunch != nil {
 		t.Errorf("codewhale ServerLaunch = %v, want nil", h.ServerLaunch)
 	}
-	if h.SkillsBase != "codewhale" {
-		t.Errorf("codewhale SkillsBase = %q, want codewhale", h.SkillsBase)
+	// CodeWhale owns the shared "agents" base, not a "codewhale" base:
+	// CodeWhale reads workspace .agents/skills, not .codewhale/skills.
+	if h.SkillsBase != SharedSkillsBase {
+		t.Errorf("codewhale SkillsBase = %q, want %q", h.SkillsBase, SharedSkillsBase)
+	}
+	if got := h.WorkdirSkillsDir(); got != ".agents/skills" {
+		t.Errorf("codewhale WorkdirSkillsDir = %q, want .agents/skills", got)
 	}
 	if h.UserConfigHome != ".codewhale" {
 		t.Errorf("codewhale UserConfigHome = %q, want .codewhale", h.UserConfigHome)
@@ -907,8 +912,9 @@ func TestCodewhaleSessionMetadata(t *testing.T) {
 	if !reflect.DeepEqual(h.Session.ContinueArgs, []string{"--continue"}) {
 		t.Errorf("codewhale ContinueArgs = %v, want [--continue]", h.Session.ContinueArgs)
 	}
-	if got := h.Session.ResumeByIDArgs("abc123"); !reflect.DeepEqual(got, []string{"--resume", "abc123"}) {
-		t.Errorf("codewhale ResumeByIDArgs = %v, want [--resume abc123]", got)
+	// resume is a top-level subcommand, not a --resume flag (see descriptor).
+	if got := h.Session.ResumeByIDArgs("abc123"); !reflect.DeepEqual(got, []string{"resume", "abc123"}) {
+		t.Errorf("codewhale ResumeByIDArgs = %v, want [resume abc123]", got)
 	}
 	if h.Session.ListKind != SessionListCodewhale {
 		t.Errorf("codewhale ListKind = %v, want SessionListCodewhale", h.Session.ListKind)

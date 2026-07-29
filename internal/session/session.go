@@ -590,44 +590,19 @@ func listCopilotDB(workdir, dbPath string) []Session {
 	}
 	defer db.Close()
 	// Schema-gate: verify the sessions table has the expected columns.
-	cols, err := db.Query("PRAGMA table_info(sessions)")
-	if err != nil {
-		return nil
-	}
-	hasID, hasCWD, hasSummary, hasUpdated := false, false, false, false
-	for cols.Next() {
-		var cid int
-		var name, ctype string
-		var notnull, pk int
-		var dflt sql.NullString
-		if err := cols.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
-			cols.Close()
-			return nil
-		}
-		switch name {
-		case "id":
-			hasID = true
-		case "cwd":
-			hasCWD = true
-		case "summary":
-			hasSummary = true
-		case "updated_at":
-			hasUpdated = true
-		}
-	}
-	cols.Close()
-	if !hasID || !hasCWD {
+	cols := tableColumns(db, "sessions")
+	if !cols["id"] || !cols["cwd"] {
 		return nil
 	}
 	// Build query based on available columns.
 	idCol := "id"
 	cwdCol := "cwd"
 	summaryCol := "id"
-	if hasSummary {
+	if cols["summary"] {
 		summaryCol = "summary"
 	}
 	updatedCol := ""
-	if hasUpdated {
+	if cols["updated_at"] {
 		updatedCol = "updated_at"
 	}
 	q := "SELECT " + idCol + ", " + summaryCol + ", COALESCE(" + cwdCol + ", '') AS cwd"

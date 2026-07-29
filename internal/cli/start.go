@@ -898,6 +898,9 @@ func runLaunch(env *Env, opts launchOpts) int {
 			if rel, werr := harness.BriefingFileFunc(briefingText, env.Workdir); werr != nil {
 				fmt.Fprintln(env.Stderr, prefix+": briefing file:", werr)
 			} else if rel != "" {
+				// Keep git from committing the briefing (persists across a
+				// SIGKILL); remove the file itself on a clean exit.
+				gitExcludeBriefing(env.Workdir, rel)
 				defer removeBriefingFile(filepath.Join(env.Workdir, rel))
 			}
 		}
