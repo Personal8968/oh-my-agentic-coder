@@ -1,0 +1,31 @@
+name: Model Output PoC
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: Test model value
+        required: true
+        default: poc-marker
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run probe
+        id: probe
+        env:
+          E2E_MODEL: ${{ inputs.model }}
+        run: |
+          scripts/probe-model.sh opencode --github-output
+
+      - name: Inspect output
+        env:
+          MODEL: ${{ steps.probe.outputs.model }}
+          CANDIDATES: ${{ steps.probe.outputs.candidates }}
+        run: |
+          echo "MODEL=<$MODEL>"
+          echo "CANDIDATES=<$CANDIDATES>"
