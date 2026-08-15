@@ -4,28 +4,52 @@ on:
   workflow_dispatch:
     inputs:
       model:
-        description: Test model value
+        description: "Controlled model value"
         required: true
-        default: poc-marker
+        type: string
+        default: "POC_MARKER"
 
 jobs:
-  test:
+  probe:
+    name: Test model data flow
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Run probe
+      - name: Run probe-model.sh
         id: probe
         env:
           E2E_MODEL: ${{ inputs.model }}
         run: |
+          set -euo pipefail
+
+          echo "[POC] Supplied input:"
+          printf '<%s>\n' "$E2E_MODEL"
+
           scripts/probe-model.sh opencode --github-output
 
-      - name: Inspect output
+      - name: Inspect GitHub outputs
         env:
           MODEL: ${{ steps.probe.outputs.model }}
+          FALLBACK: ${{ steps.probe.outputs.fallback }}
           CANDIDATES: ${{ steps.probe.outputs.candidates }}
         run: |
-          echo "MODEL=<$MODEL>"
-          echo "CANDIDATES=<$CANDIDATES>"
+          set -euo pipefail
+
+          echo "[POC] steps.probe.outputs.model:"
+          printf '<%s>\n' "$MODEL"
+
+          echo "[POC] steps.probe.outputs.fallback:"
+          printf '<%s>\n' "$FALLBACK"
+
+          echo "[POC] steps.probe.outputs.candidates:"
+          printf '<%s>\n' "$CANDIDATES"
+
+          if [ "$MODEL" = "$E2E_MODEL" ]; then
+            echo "[POC] INPUT_REACHED_OUTPUT=true"
+          else
+            echo "[POC] INPUT_REACHED_OUTPUT=false"
+            echo "[POC] The probe resolved/changed the supplied value."
+          fi
